@@ -7,6 +7,7 @@ import fi.nls.oskari.log.Logger;
 import fi.nls.oskari.service.ServiceException;
 import fi.nls.oskari.service.UserService;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.springframework.security.crypto.bcrypt.BCrypt;
 
 import java.util.*;
 
@@ -15,6 +16,7 @@ public class DatabaseUserService extends UserService {
     private IbatisUserService userService = new IbatisUserService();
 
     private static final String ERR_USER_MISSING = "User was null";
+    private static final int BCRYPT_PASSWORD_LENGTH = 60; //Default
 
     private static final Logger log = LogFactory.getLogger(DatabaseUserService.class);
 
@@ -30,11 +32,24 @@ public class DatabaseUserService extends UserService {
         try {
             final String hashedPass = "MD5:" + DigestUtils.md5Hex(pass);
             final String username = userService.login(user, hashedPass);
+            String bcryptUsername = null;
+            final String bcryptPassword = userService.getPassword(user);
+            if (bcryptPassword.length() == BCRYPT_PASSWORD_LENGTH){
+	            if (BCrypt.checkpw(pass, bcryptPassword)){
+	            	bcryptUsername = user;
+	            }
+            }
             log.debug("Tried to login user with:", user, "/", pass, "-> ", hashedPass, "- Got username:", username);
-            if(username == null) {
+            if(username == null && bcryptUsername == null) {
                 return null;
             }
-            return getUser(username);
+            if (username != null)
+            	return getUser(username);
+            
+            if (bcryptUsername != null)
+            	return getUser(bcryptUsername);
+            else
+            	return null;
         }
         catch (Exception ex) {
             throw new ServiceException("Unable to handle login", ex);
