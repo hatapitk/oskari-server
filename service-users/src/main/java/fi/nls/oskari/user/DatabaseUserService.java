@@ -30,26 +30,33 @@ public class DatabaseUserService extends UserService {
     @Override
     public User login(final String user, final String pass) throws ServiceException {
         try {
-            final String hashedPass = "MD5:" + DigestUtils.md5Hex(pass);
-            final String username = userService.login(user, hashedPass);
-            String bcryptUsername = null;
-            final String bcryptPassword = userService.getPassword(user);
-            if (bcryptPassword.length() == BCRYPT_PASSWORD_LENGTH){
-	            if (BCrypt.checkpw(pass, bcryptPassword)){
-	            	bcryptUsername = user;
-	            }
-            }
-            log.debug("Tried to login user with:", user, "/", pass, "-> ", hashedPass, "- Got username:", username);
-            if(username == null && bcryptUsername == null) {
+            final String expectedHashedPassword = userService.getPassword(user);
+            if (expectedHashedPassword == null) {
                 return null;
             }
-            if (username != null)
-            	return getUser(username);
             
-            if (bcryptUsername != null)
-            	return getUser(bcryptUsername);
-            else
-            	return null;
+            final String username;
+            if (expectedHashedPassword.startsWith("MD5:")) {
+                final String hashedPass = "MD5:" + DigestUtils.md5Hex(pass);
+                username = userService.login(user, hashedPass);
+                log.debug("Tried to login user with:", user, "/", pass, "-> ", hashedPass, "- Got username:", username);
+                if (username == null) {
+                    return null;
+                }
+            }
+            else if (expectedHashedPassword.length() == BCRYPT_PASSWORD_LENGTH) {
+                log.debug("Tried to login user:", user, "/", pass, " with BCrypt password");
+                if (!BCrypt.checkpw(pass, expectedHashedPassword)) {
+                    return null;
+                }
+                username = user;
+            }
+            else {
+                log.error("Unknown password hash format for user ", user);
+                return null;
+            }
+            
+           	return getUser(username);
         }
         catch (Exception ex) {
             throw new ServiceException("Unable to handle login", ex);
