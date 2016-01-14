@@ -12,11 +12,12 @@ import org.springframework.security.crypto.bcrypt.BCrypt;
 import java.util.*;
 
 public class DatabaseUserService extends UserService {
+    
     private IbatisRoleService roleService = new IbatisRoleService();
     private IbatisUserService userService = new IbatisUserService();
 
     private static final String ERR_USER_MISSING = "User was null";
-    private static final int BCRYPT_PASSWORD_LENGTH = 60; //Default
+    private static final int BCRYPT_PASSWORD_LENGTH = 60;
 
     private static final Logger log = LogFactory.getLogger(DatabaseUserService.class);
 
@@ -228,13 +229,13 @@ public class DatabaseUserService extends UserService {
 
     @Override
     public void setUserPassword(String username, String password) throws ServiceException {
-        String hashed = "MD5:" + DigestUtils.md5Hex(password);
+        String hashed = BCrypt.hashpw(password, BCrypt.gensalt());
         userService.setPassword(username, hashed);
     }
 
     @Override
     public void updateUserPassword(String username, String password) throws ServiceException {
-        String hashed = "MD5:" + DigestUtils.md5Hex(password);
+        String hashed = BCrypt.hashpw(password, BCrypt.gensalt());
         userService.updatePassword(username, hashed);
     }
 
