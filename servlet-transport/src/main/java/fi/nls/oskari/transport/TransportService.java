@@ -1,10 +1,34 @@
 package fi.nls.oskari.transport;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import org.cometd.bayeux.server.BayeuxServer;
+import org.cometd.bayeux.server.ServerMessage;
+import org.cometd.bayeux.server.ServerSession;
+import org.cometd.server.AbstractService;
+import org.cometd.server.Jackson2JSONContextServer;
+import org.cometd.server.JettyJSONContextServer;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vividsolutions.jts.geom.Coordinate;
+
 import fi.nls.oskari.cache.JedisManager;
 import fi.nls.oskari.log.LogFactory;
 import fi.nls.oskari.log.Logger;
-import fi.nls.oskari.pojo.*;
+import fi.nls.oskari.pojo.GeoJSONFilter;
+import fi.nls.oskari.pojo.Grid;
+import fi.nls.oskari.pojo.Layer;
+import fi.nls.oskari.pojo.Location;
+import fi.nls.oskari.pojo.PropertyFilter;
+import fi.nls.oskari.pojo.SessionStore;
+import fi.nls.oskari.pojo.Tile;
+import fi.nls.oskari.pojo.WFSCustomStyleStore;
+import fi.nls.oskari.pojo.WFSLayerPermissionsStore;
 import fi.nls.oskari.service.OskariComponentManager;
 import fi.nls.oskari.util.ConversionHelper;
 import fi.nls.oskari.util.PropertyUtil;
@@ -13,24 +37,15 @@ import fi.nls.oskari.wfs.CachingSchemaLocator;
 import fi.nls.oskari.wfs.WFSImage;
 import fi.nls.oskari.wfs.pojo.WFSLayerStore;
 import fi.nls.oskari.wfs.util.HttpHelper;
-import fi.nls.oskari.work.*;
+import fi.nls.oskari.work.JobHelper;
+import fi.nls.oskari.work.JobType;
+import fi.nls.oskari.work.MapLayerJobProvider;
+import fi.nls.oskari.work.OWSMapLayerJob;
+import fi.nls.oskari.work.ResultProcessor;
+import fi.nls.oskari.work.WFSMapLayerJob;
 import fi.nls.oskari.work.hystrix.HystrixJobQueue;
 import fi.nls.oskari.worker.Job;
 import fi.nls.oskari.worker.JobQueue;
-import org.codehaus.jackson.map.ObjectMapper;
-import org.cometd.bayeux.Message;
-import org.cometd.bayeux.server.BayeuxServer;
-import org.cometd.bayeux.server.ServerSession;
-import org.cometd.server.AbstractService;
-import org.cometd.server.JacksonJSONContextServer;
-import org.cometd.server.JettyJSONContextServer;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 
 
 /**
@@ -125,9 +140,9 @@ public class TransportService extends AbstractService {
         Object jsonContext = bayeux.getOption("jsonContext");
         if( jsonContext instanceof JettyJSONContextServer) {
 
-        } else if( jsonContext instanceof JacksonJSONContextServer) {
+        } else if( jsonContext instanceof Jackson2JSONContextServer) {
             // CometD uses older version of Jackson so transport uses 1.x versions for this on purpose
-            ObjectMapper transportMapper =  ((JacksonJSONContextServer) jsonContext).getObjectMapper();
+            ObjectMapper transportMapper =  ((Jackson2JSONContextServer) jsonContext).getObjectMapper();
             transportMapper.registerModule(new GeometryJSONOutputModule());
         }
         int workerCount = ConversionHelper.getInt(PropertyUtil
@@ -220,7 +235,7 @@ public class TransportService extends AbstractService {
      * @param client
      * @param message
      */
-    public void disconnect(ServerSession client, Message message)
+    public void disconnect(ServerSession client, ServerMessage message)
     {
         String json = SessionStore.getCache(client.getId());
         if(json != null) {
@@ -249,7 +264,7 @@ public class TransportService extends AbstractService {
      * @param client
      * @param message
      */
-    public void processRequest(ServerSession client, Message message)
+    public void processRequest(ServerSession client, ServerMessage message)
     {
         log.debug("Serving client:", client.getId());
     	Map<String, Object> output = new HashMap<String, Object>();
@@ -260,7 +275,7 @@ public class TransportService extends AbstractService {
             log.warn("Request failed because parameters were not set");
             output.put("once", false);
             output.put("message", "parameters_not_set");
-            client.deliver(local, ResultProcessor.CHANNEL_ERROR, output, null);
+            client.deliver(local, ResultProcessor.CHANNEL_ERROR, output);
             return;
         }
 
@@ -762,7 +777,7 @@ public class TransportService extends AbstractService {
      * @param service
      * @param store
      * @param layerId
-     * @return
+     * @return job
      */
     public Job createOWSMapLayerJob(ResultProcessor service, JobType type,
             SessionStore store, String layerId, boolean refresh) {
